@@ -3,8 +3,8 @@
 This set of examples demonstrates usage of the responsive iframe sizing features:
 
 - The CSS [`frame-sizing`](https://developer.mozilla.org/docs/Web/CSS/Reference/Properties/frame-sizing) property
-- The [`Window.requestResize()`](https://developer.mozilla.org/en-US/docs/Web/API/Window/requestResize) method
-- The [`<meta name="responsive-embedded-sizing">`](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/meta/name/responsive-embedded-sizing) meta tag
+- The [`Window.requestResize()`](https://developer.mozilla.org/docs/Web/API/Window/requestResize) method
+- The [`<meta name="responsive-embedded-sizing">`](https://developer.mozilla.org/docs/Web/HTML/Reference/Elements/meta/name/responsive-embedded-sizing) meta tag
 
 ## Examples
 
