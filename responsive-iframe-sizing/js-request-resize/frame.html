@@ -30,7 +30,7 @@
     <script>
       const divElem = document.querySelector("div");
       divElem.addEventListener("click", addParagraph);
-      window.addEventListener("keypress", addParagraph);
+      window.addEventListener("keydown", addParagraph);
 
       function addParagraph() {
         const para = document.createElement("p");
