@@ -70,7 +70,7 @@ async function main() {
   // ---------------------------------------------------------------------
   // Geometry: interleaved position (vec3) + uv (vec2), plus an index buffer
   // ---------------------------------------------------------------------
-  const { vertices, indices } = createCubeGeometry();
+  const { vertices, indices, faces } = createCubeGeometry();
 
   const vertexBuffer = device.createBuffer({
     size: vertices.byteLength,
@@ -182,6 +182,18 @@ async function main() {
   }
 
   // ---------------------------------------------------------------------
+  // Pause the spin while the pointer is over the canvas or the form has focus
+  // ---------------------------------------------------------------------
+  let pointerOver = false;
+  canvas.addEventListener("pointerenter", () => {
+    pointerOver = true;
+  });
+  canvas.addEventListener("pointerleave", () => {
+    pointerOver = false;
+  });
+  const isPaused = () => pointerOver || source.matches(":focus-within");
+
+  // ---------------------------------------------------------------------
   // Render loop, driven by the `paint` event
   // ---------------------------------------------------------------------
   const projection = perspective(
@@ -193,6 +205,7 @@ async function main() {
   const view = translation(0, 0, -6);
   let rotation = 0;
   let then = null;
+  let geometrySet = false;
 
   canvas.addEventListener("paint", () => {
     // No snapshot exists until the first paint, and the element may not have
@@ -202,8 +215,14 @@ async function main() {
       return;
     }
 
+    const paused = isPaused();
+
+    // `then` is updated every frame, even while paused, so the cube
+    // resumes smoothly instead of jumping ahead.
     const now = performance.now() * 0.001; // convert to seconds
-    rotation += then === null ? 0 : now - then;
+    if (then !== null && !paused) {
+      rotation += now - then;
+    }
     then = now;
 
     const model = multiply(
@@ -212,6 +231,28 @@ async function main() {
     );
     const mvp = multiply(projection, multiply(view, model));
     device.queue.writeBuffer(uniformBuffer, 0, mvp);
+
+    // While paused, tell the browser where the form appears on the cube so
+    // that hit testing matches what is rendered. Release it when spinning
+    // resumes.
+    if (paused) {
+      canvas.updateElementGeometry(source, {
+        canvasTransform: elementToCanvasTransform(
+          mvp,
+          model,
+          view,
+          faces,
+          source.offsetWidth,
+          source.offsetHeight,
+          canvas.clientWidth,
+          canvas.clientHeight,
+        ),
+      });
+      geometrySet = true;
+    } else if (geometrySet) {
+      canvas.clearElementGeometry(source);
+      geometrySet = false;
+    }
 
     const encoder = device.createCommandEncoder();
     const pass = encoder.beginRenderPass({
@@ -285,7 +326,96 @@ function createCubeGeometry() {
   return {
     vertices: new Float32Array(vertices),
     indices: new Uint16Array(indices),
+    faces,
   };
+}
+
+// --- Hit-test geometry ---------------------------------------------------
+// Builds the DOMMatrix that maps the element's CSS-pixel box onto the
+// on-screen quad of the cube face that is most squarely facing the camera,
+// for use with canvas.updateElementGeometry().
+//
+//   result = viewport * mvp * elementToFace
+//
+// The viewport step sits before the perspective divide, so the browser
+// performs the divide when it applies the matrix.
+function elementToCanvasTransform(
+  mvp,
+  model,
+  view,
+  faces,
+  elW,
+  elH,
+  canvasW,
+  canvasH,
+) {
+  // Pick the face whose normal points most directly at the camera
+  let best = faces[0];
+  let bestScore = -Infinity;
+  for (const face of faces) {
+    const [nx, ny, nz] = face.n;
+    // Rotated normal (model is rotation-only, so this is also the face centre)
+    const cx = model[0] * nx + model[4] * ny + model[8] * nz;
+    const cy = model[1] * nx + model[5] * ny + model[9] * nz;
+    const cz = model[2] * nx + model[6] * ny + model[10] * nz;
+    // Face centre in view space (camera at origin)
+    const vx = cx + view[12];
+    const vy = cy + view[13];
+    const vz = cz + view[14];
+    const score = -(cx * vx + cy * vy + cz * vz) / Math.hypot(vx, vy, vz);
+    if (score > bestScore) {
+      bestScore = score;
+      best = face;
+    }
+  }
+  const { n, r, u } = best;
+
+  // Element pixels -> model space. (0,0) is the face's top-left corner,
+  // (elW,elH) the bottom-right; element z maps along the face normal so the
+  // matrix stays invertible.
+  const toFace = new Float32Array([
+    (2 * r[0]) / elW,
+    (2 * r[1]) / elW,
+    (2 * r[2]) / elW,
+    0,
+    (-2 * u[0]) / elH,
+    (-2 * u[1]) / elH,
+    (-2 * u[2]) / elH,
+    0,
+    n[0],
+    n[1],
+    n[2],
+    0,
+    n[0] - r[0] + u[0],
+    n[1] - r[1] + u[1],
+    n[2] - r[2] + u[2],
+    1,
+  ]);
+
+  // Clip space -> canvas CSS pixels (y flipped), applied before the w divide
+  const hw = canvasW / 2;
+  const hh = canvasH / 2;
+  const viewport = new Float32Array([
+    hw,
+    0,
+    0,
+    0,
+    0,
+    -hh,
+    0,
+    0,
+    0,
+    0,
+    1,
+    0,
+    hw,
+    hh,
+    0,
+    1,
+  ]);
+
+  const m = multiply(viewport, multiply(mvp, toFace));
+  return new DOMMatrix(Array.from(m)); // 16 values, column-major
 }
 
 // --- Minimal column-major 4x4 matrix helpers -----------------------------
